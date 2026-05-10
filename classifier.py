@@ -61,30 +61,3 @@ def classify_ticket(ticket: str) -> TicketResult:
         print(e)
         raise
 
-ticket = "I was charged twice this month and need a refund immediately."
-result = classify_ticket(ticket)
-
-print("Category:", result.category)
-print("Priority:", result.priority)
-print("Draft reply:", result.draft_reply)
-
-test_tickets = [
-    "I was charged twice this month",
-    "I cannot log into my account",
-    "How do I export my data?",
-    "The app crashes every time I open it",
-    ""
-]
-
-for ticket in test_tickets:
-    try:
-        result = classify_ticket(ticket)
-        print(f"Ticket: {ticket[:40]}")
-        print(f"Category: {result.category} | Priority: {result.priority}")
-        print()
-    except ValueError as e:
-        print(f"Ticket: '{ticket}' -> REJECTED: {e}")
-        print()
-    except Exception as e:
-        print(f"Ticket: '{ticket}' -> ERROR: {e}")
-        print()
