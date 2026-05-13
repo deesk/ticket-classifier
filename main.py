@@ -1,6 +1,8 @@
-from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from classifier import classify_ticket, TicketResult
+from fastapi import FastAPI, HTTPException
+from ticket_classifier import classify_ticket, TicketResult
+from agent import run_agent, AgentResponse
+
 
 app = FastAPI(
     title="AI Ticket Classifier",
@@ -20,6 +22,14 @@ def classify(request: TicketRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Classification failed")
+    
+@app.post("/agent", response_model=AgentResponse)
+def agent(request: TicketRequest):
+    try:
+        result = run_agent(request.ticket)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Agent failed")
 
 @app.get("/health")
 def health():

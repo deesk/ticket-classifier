@@ -6,6 +6,7 @@ from openai import AzureOpenAI
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
+
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 
 client = AzureOpenAI(
