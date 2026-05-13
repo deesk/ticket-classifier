@@ -10,16 +10,75 @@ Takes a raw support ticket as text input and returns three things:
 - **Priority**: low, medium, high, or urgent — defined by explicit business rules, not model guesswork
 - **Draft reply**: a suggested response the support agent can review and send
 
+The system has two layers. The classifier handles valid tickets. The agent decides whether a ticket is worth classifying at all.
+
 ## Stack
 
 - Python 3.13
 - Azure OpenAI (GPT-4.1)
 - Pydantic for structured output validation
-- FastAPI (week 2, in progress)
+- FastAPI for the API layer
+- pytest for the test suite
 
-## Why structured output matters
+## Architecture
 
-Support routing fails when classification is inconsistent. This classifier uses Pydantic `Literal` types to enforce exact field values — if the model returns anything outside the defined categories or priorities, the request fails loudly rather than routing silently to the wrong queue. Temperature is set to 0 to maximise consistency across runs.
+```
+ticket-classifier/
+  ticket_classifier.py  # Core logic: prompt, API call, Pydantic validation
+  agent.py              # Agentic layer: intent detection, routing, retry logic
+  main.py               # FastAPI: /classify and /agent endpoints
+  test_cases.py         # 11 tests covering classifier and agent behaviour
+  requirements.txt
+  .env                  # Credentials, never committed
+  .gitignore
+  README.md
+```
+
+### Two endpoints, one deliberate reason
+
+`POST /classify` accepts pre-validated input and runs classification directly. It exists for internal use or upstream systems that already guarantee ticket validity.
+
+`POST /agent` is the recommended public endpoint. It runs an intent check before classification, handles invalid input gracefully, and asks for more information when the ticket is too vague to classify. Any untrusted input should go through this endpoint.
+
+This separation follows the single responsibility principle. The classifier classifies. The agent decides. Each component is independently testable.
+
+### Agent decision flow
+
+```
+Input received
+    │
+    ├── Empty? → rejected (no API call made)
+    │
+    ├── Invalid? (greeting, off-topic, nonsense) → rejected with reason
+    │
+    ├── Too vague? → needs_info with follow-up question
+    │
+    └── Valid? → classify → return category, priority, draft reply
+```
+
+### Response shape
+
+The agent always returns the same structure regardless of outcome. The caller checks `action` first, then reads the relevant field.
+
+```json
+// Valid ticket
+{
+  "action": "classified",
+  "result": { "category": "billing", "priority": "high", "draft_reply": "..." }
+}
+
+// Invalid input
+{
+  "action": "rejected",
+  "reason": "This is a greeting, not a support ticket."
+}
+
+// Insufficient detail
+{
+  "action": "needs_info",
+  "question": "Could you please provide more details about your issue?"
+}
+```
 
 ## How to run it locally
 
@@ -29,10 +88,10 @@ Support routing fails when classification is inconsistent. This classifier uses 
 ```bash
 python -m venv myVenv
 myVenv\Scripts\Activate.ps1
-pip install openai python-dotenv pydantic
+pip install -r requirements.txt
 ```
 
-3. Create a `.env` file in the project root
+3. Create a `.env` file in the project root with these four variables:
 
 ```
 AZURE_OPENAI_ENDPOINT=your_endpoint_here
@@ -41,33 +100,25 @@ AZURE_OPENAI_DEPLOYMENT=your_deployment_name
 AZURE_OPENAI_API_VERSION=2024-12-01-preview
 ```
 
-4. Run the classifier
+4. Start the API
 
 ```bash
-python classifier.py
+uvicorn main:app --reload
 ```
 
-## Project structure
+5. Open the interactive docs at `http://127.0.0.1:8000/docs`
 
-```
-ticket-classifier/
-  classifier.py       # Core logic: prompt, API call, validation
-  main.py             # FastAPI wrapper (week 2)
-  test_cases.py       # Test suite (week 2)
-  .env                # Credentials, never committed
-  .gitignore
-  README.md
+6. Run the test suite
+
+```bash
+pytest test_cases.py -v
 ```
 
-## What I learned
+## Findings
 
-LLM output validation is not optional. Without `Literal` type enforcement, a model returning `"priority": "very important"` instead of `"priority": "high"` would pass silently and break downstream routing. Pydantic catches this at the boundary before bad data enters the system.
+Four behaviours emerged during testing that are not obvious from documentation alone. Full analysis in [docs/findings.md](docs/findings.md).
 
-Priority definitions belong in the prompt, not in code. When the model returned `high` instead of `urgent` for a crashing app, the fix was adding explicit priority definitions to the system prompt — not changing any code. Prompt engineering is the first tool, code changes are the last.
-
-Temperature=0 reduces but does not eliminate output variation. Classification fields stay locked across runs. Draft reply wording varies slightly due to distributed infrastructure variance, which is acceptable for a human-reviewed draft but would require response caching for fully deterministic output.
-
-## Roadmap
-
-- Week 2: FastAPI endpoint, input validation, pytest suite
-- Week 3: Agentic layer — model decides if it needs more information before classifying, routes to appropriate department
+- Draft reply language is non-deterministic by default even when classification fields are consistent
+- Temperature=0 reduces variation but does not eliminate it due to distributed infrastructure
+- Without intent detection, the classifier processes all input and produces contextually irrelevant output
+- LLM JSON parsing failures require retry logic and safe fallbacks, not fixes
