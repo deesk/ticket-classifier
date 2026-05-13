@@ -12,6 +12,10 @@ Takes a raw support ticket as text input and returns three things:
 
 The system has two layers. The classifier handles valid tickets. The agent decides whether a ticket is worth classifying at all.
 
+## Demo
+
+![AI Ticket Classifier Demo](docs/demo.gif)
+
 ## Stack
 
 - Python 3.13
